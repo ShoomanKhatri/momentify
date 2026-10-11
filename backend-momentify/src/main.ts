@@ -1,10 +1,19 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule, ObserveInstrument } from './app.module.js';
+import { ConsoleLogger } from '@nestjs/common';
+import { existsSync } from 'node:fs';
+import { loadEnvFile } from 'node:process';
+import { AppModule } from './app.module.js';
+import { ConfigService } from './config/config.service.js';
+import { setupApplication } from './setup.js';
+
+if (existsSync('.env')) loadEnvFile('.env');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    instrument: ObserveInstrument,
+    logger: new ConsoleLogger({ json: true }),
   });
-  await app.listen(process.env.PORT ?? 3000);
+  setupApplication(app);
+  const config = app.get(ConfigService);
+  await app.listen(config.port, config.host);
 }
 await bootstrap();

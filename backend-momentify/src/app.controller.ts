@@ -1,12 +1,27 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, VERSION_NEUTRAL } from '@nestjs/common';
+import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { AppService } from './app.service.js';
 
-@Controller()
+@ApiTags('system')
+@Controller({ version: [VERSION_NEUTRAL, '1'] })
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
-  @Get()
-  getHello(): string {
-    return this.appService.getHello();
+  @Get('health')
+  @ApiOkResponse({ description: 'Liveness probe and active trading mode' })
+  health() {
+    return this.appService.health();
+  }
+  @Get('dashboard')
+  @ApiOkResponse({
+    description: 'Combined portfolio, strategy and market view',
+  })
+  dashboard() {
+    return this.appService.dashboard();
+  }
+  @Get('settings')
+  @ApiOkResponse({ description: 'Effective paper-trading configuration' })
+  settings() {
+    return this.appService.settings();
   }
 }

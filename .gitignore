@@ -12,3 +12,8 @@ coverage/
 .vscode/*
 !.vscode/settings.json
 .idea
+.data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+!.env.paper.example
