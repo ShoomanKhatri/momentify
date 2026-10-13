@@ -187,3 +187,41 @@ export interface TradesResponse {
   total: number;
   totalPages: number;
 }
+
+export type DemoActivityKind = 'status' | 'signal' | 'execution';
+
+export interface DemoActivity {
+  id: string;
+  at: string;
+  kind: DemoActivityKind;
+  side: 'BUY' | 'SELL' | null;
+  price: number | null;
+  message: string;
+}
+
+/**
+ * Result of the isolated, accelerated historical replay used for demo videos.
+ * Demo state never touches the live paper session stored in SQLite.
+ */
+export interface DemoSnapshot {
+  mode: 'demo';
+  simulated: true;
+  label: string;
+  running: boolean;
+  status: 'idle' | 'running' | 'paused' | 'complete';
+  source: 'sample' | 'geckoterminal';
+  stepMs: number;
+  totalCandles: number;
+  cursor: number;
+  progress: number;
+  startedAt: string | null;
+  currentCandleAt: string | null;
+  currentPrice: number | null;
+  signal: SignalSnapshot;
+  config: StrategyConfig;
+  portfolio: PortfolioSnapshot;
+  trades: Trade[];
+  activity: DemoActivity[];
+  message: string | null;
+  updatedAt: string;
+}

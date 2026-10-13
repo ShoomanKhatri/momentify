@@ -22,6 +22,13 @@ function numberEnv(
   return value;
 }
 
+function demoReplaySource(): 'live' | 'sample' {
+  const raw = process.env.DEMO_REPLAY_SOURCE;
+  if (raw === undefined || raw === '' || raw === 'live') return 'live';
+  if (raw === 'sample') return 'sample';
+  throw new Error('Invalid configuration: DEMO_REPLAY_SOURCE');
+}
+
 @Injectable()
 export class ConfigService {
   readonly solanaRpcUrl = process.env.SOLANA_RPC_URL ?? '';
@@ -50,6 +57,8 @@ export class ConfigService {
   readonly feeBps = numberEnv('PAPER_FEE_BPS', 25, 0, 1000);
   readonly slippageBps = numberEnv('PAPER_SLIPPAGE_BPS', 10, 0, 1000);
   readonly maxSlippageBps = numberEnv('MAX_SLIPPAGE_BPS', 100, 0, 10_000);
+  readonly demoReplaySource = demoReplaySource();
+  readonly demoStepMs = numberEnv('DEMO_STEP_MS', 300, 50, 10_000, true);
   readonly pollIntervalMs = numberEnv(
     'MARKET_POLL_INTERVAL_MS',
     15_000,

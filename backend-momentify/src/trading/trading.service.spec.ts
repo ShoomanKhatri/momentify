@@ -98,6 +98,47 @@ describe('paper engine safety', () => {
     expect(database.read().trades[0].side).toBe('BUY');
     expect(database.read().trades[0].referencePrice).toBe(110);
   });
+  it('preserves an open position and history when stopped, and never catches up on paused candles', async () => {
+    snapshot.price = 99;
+    database.update((state) => {
+      state.running = true;
+      state.lastCandleTime = snapshot.candles.at(-2)!.time;
+    });
+    await engine.tick();
+    expect(database.read().trades).toHaveLength(1);
+    expect(database.read().position).not.toBeNull();
+
+    strategy.setRunning(false);
+    const paused = database.read();
+    expect(paused.running).toBe(false);
+    expect(paused.position).not.toBeNull();
+    expect(paused.trades).toHaveLength(1);
+
+    const previous = snapshot.candles.at(-1)!;
+    const nextTime = previous.time + 60;
+    snapshot.candles.push({
+      ...previous,
+      time: nextTime,
+      open: 99,
+      high: 99,
+      low: 99,
+      close: 99,
+      timestamp: new Date(nextTime * 1000).toISOString(),
+    });
+    snapshot.price = 99;
+    const resumeTime = new Date((nextTime + 60) * 1000 + 10_000);
+    snapshot.quoteAt = resumeTime.toISOString();
+    vi.setSystemTime(resumeTime);
+
+    await engine.tick();
+    expect(database.read().trades).toHaveLength(1);
+    expect(database.read().position).not.toBeNull();
+
+    strategy.setRunning(true);
+    await engine.tick();
+    expect(database.read().trades).toHaveLength(1);
+    expect(database.read().position).not.toBeNull();
+  });
   it('does not execute or value positions from an unavailable feed', async () => {
     database.update((state) => {
       state.running = true;
