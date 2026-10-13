@@ -46,7 +46,11 @@ export function EquityChart({ points }: { points: EquityPoint[] }) {
   const pad = Math.max((max - min) * 0.2, max * 0.002, 1);
   const low = min - pad,
     high = max + pad;
-  const firstTime = data.length ? Date.parse(data[0].timestamp) : 0;
+  const firstTime = data.length
+    ? range === "ALL"
+      ? Date.parse(data[0].timestamp)
+      : end - duration
+    : 0;
   const span = Math.max(end - firstTime, 1);
   const x = (point: EquityPoint) =>
     left +
@@ -168,7 +172,7 @@ export function EquityChart({ points }: { points: EquityPoint[] }) {
                 />
               )}
               <text x={left} y={height - 4} className="chart-label">
-                {dateTime(data[0].timestamp)}
+                {dateTime(new Date(firstTime).toISOString())}
               </text>
               <text
                 x={width - right}

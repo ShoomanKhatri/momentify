@@ -2,6 +2,19 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { usePreferences } from "@/components/providers";
+import type { ChartRange } from "./chart-history";
+
+export function useChartHistory(range: ChartRange, pool: string | null) {
+  const { refreshInterval } = usePreferences();
+  return useQuery({
+    queryKey: ["chart-history", pool, range],
+    queryFn: ({ signal }) => api.chartHistory(range, pool!, signal),
+    enabled: !!pool,
+    staleTime: 60_000,
+    refetchInterval: refreshInterval ? 60_000 : false,
+    retry: false,
+  });
+}
 
 export function useDashboard() {
   const { refreshInterval } = usePreferences();

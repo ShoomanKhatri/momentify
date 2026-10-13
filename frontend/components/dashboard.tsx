@@ -149,8 +149,9 @@ export function Dashboard() {
                 className="performance"
                 aria-label="SOL/USDC market chart"
               >
-                <PriceChart points={data.market.candles} />
+                <PriceChart pool={data.market.pool?.address ?? null} />
                 <p className="chart-caption">
+                  Strategy feed · 1m candles ·{" "}
                   {freshCandles
                     ? "Fresh"
                     : data.market.candleStatus === "stale" ||

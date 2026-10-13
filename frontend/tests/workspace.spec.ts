@@ -2,10 +2,17 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import type {
   DashboardSnapshot,
+  IndicatorCandle,
+  Candle,
   MarketSnapshot,
   StrategySnapshot,
   Trade,
 } from "../lib/models";
+import { dateTime } from "../lib/format";
+import { buildChartHistory, chartRanges, type ChartRange } from "../lib/chart-history";
+import { SOL_MINT, USDC_MINT } from "../lib/gecko-history";
+
+const poolAddress = "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE";
 
 // These fixtures are confined to browser tests and are never imported by the app.
 async function provideApi(
@@ -16,6 +23,8 @@ async function provideApi(
     trades?: Trade[];
     emptyMarkets?: boolean;
     geckoUnavailable?: boolean;
+    candles?: IndicatorCandle[];
+    history?: Partial<Record<ChartRange, Candle[]>>;
   } = {},
 ) {
   const now = new Date().toISOString();
@@ -29,7 +38,10 @@ async function provideApi(
     volumeCurrency: "USD",
     candleVolumeCurrency: "USDC",
     quoteTimestampKind: "fetched",
-    pool: null,
+    pool: options.geckoUnavailable ? null : {
+      address: poolAddress, network: "solana", dex: "orca",
+      baseMint: SOL_MINT, quoteMint: USDC_MINT, quote: "USDC", verifiedAt: now,
+    },
     liquidityUsd: 1000000,
     quoteStatus: options.stale ? "stale" : "live",
     candleStatus: options.geckoUnavailable
@@ -51,7 +63,8 @@ async function provideApi(
     candleIntervalSeconds: 60,
     candles: options.geckoUnavailable
       ? []
-      : Array.from({ length: 30 }, (_, i) => {
+      : (options.candles ??
+        Array.from({ length: 30 }, (_, i) => {
           const time = Math.floor(Date.now() / 60_000) * 60 - (30 - i) * 60;
           return {
             time,
@@ -64,7 +77,7 @@ async function provideApi(
             ema9: i >= 8 ? 100 : null,
             ema21: i >= 20 ? 100 : null,
           };
-        }),
+        })),
     message: options.geckoUnavailable
       ? "GeckoTerminal market data unavailable"
       : options.stale
@@ -175,6 +188,11 @@ async function provideApi(
       };
     const responses: Record<string, unknown> = {
       "/api/dashboard": dashboard(),
+      "/api/market/history": (() => {
+        if (path !== "/api/market/history") return null;
+        const range = new URL(route.request().url()).searchParams.get("range") as ChartRange;
+        return buildChartHistory(options.history?.[range] ?? historicalCandles(range), range, Date.now());
+      })(),
       "/api/strategy": strategy,
       "/api/strategy/config": strategy,
       "/api/strategy/status": strategy,
@@ -425,6 +443,147 @@ test("supports keyboard inspection of completed candle prices and EMA overlays",
   await expect(
     page.getByRole("button", { name: "1D", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
+});
+
+function historicalCandles(range: ChartRange, count?: number): Candle[] {
+  const interval = chartRanges[range].intervalSeconds;
+  const length = count ?? (range === "1D" ? 288 : range === "1W" ? 168 : 180);
+  const end = Math.floor(Date.now() / 1000 / interval) * interval;
+  return Array.from({ length }, (_, index) => ({
+    time: end - (length - index) * interval,
+    open: 100, high: 101, low: 99, close: 100, volume: 20,
+  }));
+}
+
+async function candleCount(page: Page) {
+  return page.locator(".chart-line").evaluateAll((lines) =>
+    lines.reduce((sum, line) => sum + (line as SVGPolylineElement).points.numberOfItems, 0),
+  );
+}
+
+async function expectFullWidth(page: Page) {
+  const geometry = await page.locator(".chart svg").evaluate((svg: SVGSVGElement) => {
+    const lines = svg.querySelectorAll<SVGPolylineElement>(".chart-line");
+    const first = lines[0].points.getItem(0).x;
+    const lastLine = lines[lines.length - 1];
+    return { first, last: lastLine.points.getItem(lastLine.points.numberOfItems - 1).x, width: svg.viewBox.baseVal.width };
+  });
+  expect(geometry.first).toBeCloseTo(4);
+  expect(geometry.last).toBeCloseTo(geometry.width - 72);
+}
+
+test("switches 1W to 1D using independent historical requests and full chart width", async ({ page }) => {
+  await provideApi(page);
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/market/history") requests.push(url.searchParams.get("range")!);
+  });
+  await page.goto("/");
+  const chart = page.getByRole("img", { name: /SOL\/USDC price/ });
+  const controls = page.getByLabel("Price history range");
+  await expect(chart).toBeVisible();
+  const allPoints = await page.locator(".chart-line").first().getAttribute("points");
+  for (const [range, count, interval] of [["1W", 168, "1h"], ["1D", 288, "5m"], ["All", 180, "1d"]] as const) {
+    await controls.getByRole("button", { name: range, exact: true }).click();
+    await expect.poll(() => candleCount(page)).toBe(count);
+    await expect(controls.getByRole("button", { name: range, exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText(`Completed ${interval} candles · USDC`, { exact: true })).toBeVisible();
+    await expectFullWidth(page);
+    await expect(page.getByText(/History is incomplete/)).toHaveCount(0);
+  }
+  expect(requests).toEqual(["ALL", "1W", "1D"]);
+  await expect(page.locator(".chart-line").first()).toHaveAttribute("points", allPoints!);
+  await expect(page.locator(".strategy-meta")).toHaveText("SOL / USDC · 1m candles");
+  await expect(page.locator(".summary-list")).toContainText("$100.00");
+});
+
+test("labels the close line and EMA overlays on the price chart", async ({ page }) => {
+  await provideApi(page);
+  await page.goto("/");
+  const chart = page.locator(".performance .chart");
+  const legend = chart.locator(".chart-legend");
+  await expect(legend).toBeVisible();
+  await expect(legend.locator("span")).toHaveCount(3);
+  await expect(legend).toContainText("Close");
+  await expect(legend).toContainText("EMA 9");
+  await expect(legend).toContainText("EMA 21");
+  const swatches = await legend.locator("i").evaluateAll((items) =>
+    items.map((item) => ({
+      color: getComputedStyle(item).borderTopColor,
+      style: getComputedStyle(item).borderTopStyle,
+    })),
+  );
+  const closeStroke = await chart
+    .locator(".chart-line")
+    .first()
+    .evaluate((line) => getComputedStyle(line).stroke);
+  expect(swatches).toEqual([
+    { color: closeStroke, style: "solid" },
+    { color: "rgb(180, 83, 9)", style: "solid" },
+    { color: "rgb(37, 99, 235)", style: "dashed" },
+  ]);
+  const box = await legend.boundingBox();
+  const frame = await chart.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(frame!.x);
+  expect(box!.y).toBeGreaterThanOrEqual(frame!.y);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(frame!.x + frame!.width);
+});
+
+test("shows the real available range when week history is incomplete", async ({ page }) => {
+  const candles = historicalCandles("1W", 5);
+  await provideApi(page, { history: { "1W": candles } });
+  await page.goto("/");
+  await page.getByLabel("Price history range").getByRole("button", { name: "1W", exact: true }).click();
+  await expect.poll(() => candleCount(page)).toBe(5);
+  await expectFullWidth(page);
+  const notice = page.getByText(/History is incomplete/);
+  await expect(notice).toContainText(dateTime(new Date(candles[0].time * 1000).toISOString()));
+  await expect(notice).toContainText(dateTime(new Date((candles.at(-1)!.time + 3600) * 1000).toISOString()));
+  await page.setViewportSize({ width: 375, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("does not show the previous timeframe while a new history request is loading or empty", async ({ page }) => {
+  await provideApi(page, { history: { "1D": [] } });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/market/history?range=1D&*", async (route) => {
+    await gate;
+    await route.fallback();
+  });
+  await page.goto("/");
+  await expect(page.getByRole("img", { name: /SOL\/USDC price/ })).toBeVisible();
+  await page.getByLabel("Price history range").getByRole("button", { name: "1D", exact: true }).click();
+  await expect(page.getByLabel("Loading price history")).toBeVisible();
+  await expect(page.locator(".chart svg")).toHaveCount(0);
+  release();
+  await expect(page.getByText("No completed candles available", { exact: true })).toBeVisible();
+  await expect(page.getByText("No completed 5m candles returned for 1D.")).toBeVisible();
+  await page.getByLabel("Price history range").getByRole("button", { name: "1W", exact: true }).click();
+  await expect.poll(() => candleCount(page)).toBe(168);
+});
+
+test("breaks price and EMA lines across missing trading intervals", async ({ page }) => {
+  const candles = historicalCandles("1D", 60).filter((_, index) => index !== 30);
+  await provideApi(page, { history: { "1D": candles } });
+  await page.goto("/");
+  await page.getByLabel("Price history range").getByRole("button", { name: "1D", exact: true }).click();
+  await expect.poll(() => candleCount(page)).toBe(59);
+  await expect(page.locator(".chart-line")).toHaveCount(2);
+  await expect(page.getByText(/Intervals without trades are omitted/)).toBeVisible();
+});
+
+test("shows a history fetch error and recovers without falling back to one-minute candles", async ({ page }) => {
+  await provideApi(page);
+  await page.route("**/api/market/history?range=1W&*", (route) => route.fulfill({ status: 429, json: { message: "History is rate limited. Try again shortly." } }));
+  await page.goto("/");
+  await page.getByLabel("Price history range").getByRole("button", { name: "1W", exact: true }).click();
+  await expect(page.locator('.chart-empty[role="alert"]')).toContainText("History is rate limited.");
+  await expect(page.locator(".chart svg")).toHaveCount(0);
+  await page.unroute("**/api/market/history?range=1W&*");
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect.poll(() => candleCount(page)).toBe(168);
 });
 
 test("shows market empty states and updates table sort semantics", async ({

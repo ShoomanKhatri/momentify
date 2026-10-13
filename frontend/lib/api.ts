@@ -8,6 +8,7 @@ import type {
   CandlesResponse,
   HealthSnapshot,
 } from "./models";
+import type { ChartHistory, ChartRange } from "./chart-history";
 
 export class ApiError extends Error {
   constructor(
@@ -19,14 +20,14 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit, timeout = 12_000): Promise<T> {
   try {
     const response = await fetch(`/api/${path}`, {
       ...options,
       headers: { "Content-Type": "application/json", ...options?.headers },
       signal: options?.signal
-        ? AbortSignal.any([options.signal, AbortSignal.timeout(12_000)])
-        : AbortSignal.timeout(12_000),
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(timeout)])
+        : AbortSignal.timeout(timeout),
     });
     const payload: unknown = await response.json().catch((error: unknown) => {
       if (error instanceof SyntaxError)
@@ -84,6 +85,8 @@ export const api = {
     request<HealthSnapshot>("health", { signal }),
   candles: (signal?: AbortSignal) =>
     request<CandlesResponse>("market/candles", { signal }),
+  chartHistory: (range: ChartRange, pool: string, signal?: AbortSignal) =>
+    request<ChartHistory>(`market/history?${new URLSearchParams({ range, pool })}`, { signal }, 35_000),
   settings: (signal?: AbortSignal) =>
     request<SettingsSnapshot>("settings", { signal }),
   setStrategyStatus: (running: boolean) =>

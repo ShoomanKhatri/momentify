@@ -20,6 +20,9 @@
   --paper-foreground: #3666a5;
   --paper-border: #c8dbfa;
   --ring: #355e42;
+  --chart-close: #2f5a3d;
+  --chart-ema9: #b45309;
+  --chart-ema21: #2563eb;
   --radius: 6px;
 }
 @theme inline {
@@ -540,14 +543,15 @@ h2 {
 }
 .chart-line {
   fill: none;
-  stroke: var(--accent);
-  stroke-width: 2;
+  stroke: var(--chart-close);
+  stroke-width: 2.5;
+  stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
 .chart-dot {
   fill: var(--background);
-  stroke: var(--accent);
+  stroke: var(--chart-close);
   stroke-width: 2;
 }
 .chart-tooltip {
@@ -561,6 +565,36 @@ h2 {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   pointer-events: none;
+}
+.chart-legend {
+  position: absolute;
+  top: 8px;
+  left: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--background) 90%, transparent);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-legend i {
+  display: inline-block;
+  width: 22px;
+  border-top-width: 3px;
+  border-top-style: solid;
+  border-radius: 2px;
+}
+.chart-legend i.dashed {
+  border-top-style: dashed;
 }
 .chart-empty {
   height: 272px;
